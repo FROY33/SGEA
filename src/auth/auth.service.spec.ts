@@ -1,25 +1,20 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { SupabaseService } from '../supabase/supabase.service';
-import { ConflictException, InternalServerErrorException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 
-// Mock de Supabase
 const mockSupabaseClient = {
   auth: {
-    admin: {
-      createUser: jest.fn(),
-      getUserById: jest.fn(),
-      deleteUser: jest.fn(),
-    },
+    signUp: jest.fn(),
+    signInWithPassword: jest.fn(),
   },
-  from: jest.fn().mockReturnThis(),
-  upsert: jest.fn(),
 };
 
 const mockSupabaseService = {
   getClient: jest.fn().mockReturnValue(mockSupabaseClient),
 };
 
+// ============ US-01: Registro ============
 describe('AuthService - register', () => {
   let service: AuthService;
 
@@ -32,22 +27,14 @@ describe('AuthService - register', () => {
     }).compile();
 
     service = module.get<AuthService>(AuthService);
-    jest.clearAllMocks(); // limpiar mocks entre cada test
+    jest.clearAllMocks();
   });
 
   // Caso 1: registro exitoso
   it('debe retornar mensaje de éxito al registrar correctamente', async () => {
-    mockSupabaseClient.auth.admin.createUser.mockResolvedValue({
+    mockSupabaseClient.auth.signUp.mockResolvedValue({
       data: { user: { id: 'uuid-123' } },
       error: null,
-    });
-
-    mockSupabaseClient.auth.admin.getUserById.mockResolvedValue({
-      data: { user: { id: 'uuid-123' } },
-    });
-
-    mockSupabaseClient.from.mockReturnValue({
-      upsert: jest.fn().mockResolvedValue({ error: null }),
     });
 
     const result = await service.register({
@@ -57,15 +44,15 @@ describe('AuthService - register', () => {
     });
 
     expect(result).toEqual({
-      message: 'Registro exitoso. Revisa tu correo para verificar tu cuenta.',
+      message: 'Registro exitoso. Revisa tu correo para confirmar cuenta',
     });
   });
 
-  // Caso 2: correo duplicado
-  it('debe lanzar ConflictException si el correo ya existe', async () => {
-    mockSupabaseClient.auth.admin.createUser.mockResolvedValue({
+  // Caso 2: correo duplicado o datos inválidos
+  it('debe lanzar BadRequestException si Supabase retorna error', async () => {
+    mockSupabaseClient.auth.signUp.mockResolvedValue({
       data: null,
-      error: { message: 'User already been registered' },
+      error: { message: 'User already registered' },
     });
 
     await expect(
@@ -74,57 +61,110 @@ describe('AuthService - register', () => {
         password: '12345678',
         username: 'testuser',
       }),
-    ).rejects.toThrow(ConflictException);
+    ).rejects.toThrow(BadRequestException);
   });
 
-  // Caso 3: error al verificar usuario
-  it('debe lanzar InternalServerErrorException si getUserById no encuentra el usuario', async () => {
-    mockSupabaseClient.auth.admin.createUser.mockResolvedValue({
-      data: { user: { id: 'uuid-123' } },
-      error: null,
+  // Caso 3: password débil
+  it('debe lanzar BadRequestException si la contraseña es débil', async () => {
+    mockSupabaseClient.auth.signUp.mockResolvedValue({
+      data: null,
+      error: { message: 'Password should be at least 6 characters' },
     });
-
-    mockSupabaseClient.auth.admin.getUserById.mockResolvedValue({
-      data: { user: null },
-    });
-
-    mockSupabaseClient.auth.admin.deleteUser.mockResolvedValue({ error: null });
 
     await expect(
       service.register({
         email: 'test@correo.com',
-        password: '12345678',
+        password: '123',
         username: 'testuser',
       }),
-    ).rejects.toThrow(InternalServerErrorException);
+    ).rejects.toThrow(BadRequestException);
+  });
+});
+
+// ============ US-02: Login ============
+describe('AuthService - login', () => {
+  let service: AuthService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AuthService,
+        { provide: SupabaseService, useValue: mockSupabaseService },
+      ],
+    }).compile();
+
+    service = module.get<AuthService>(AuthService);
+    jest.clearAllMocks();
   });
 
-  // Caso 4: error al guardar perfil
-  it('debe lanzar InternalServerErrorException y hacer rollback si falla el upsert', async () => {
-    mockSupabaseClient.auth.admin.createUser.mockResolvedValue({
-      data: { user: { id: 'uuid-123' } },
+  // Caso 1: login exitoso
+  it('debe retornar tokens al iniciar sesión correctamente', async () => {
+    mockSupabaseClient.auth.signInWithPassword.mockResolvedValue({
+      data: {
+        user: { id: 'uuid-123', email: 'test@correo.com' },
+        session: {
+          access_token: 'access-token-123',
+          refresh_token: 'refresh-token-123',
+          expires_in: 3600,
+        },
+      },
       error: null,
     });
 
-    mockSupabaseClient.auth.admin.getUserById.mockResolvedValue({
-      data: { user: { id: 'uuid-123' } },
+    const result = await service.login({
+      email: 'test@correo.com',
+      password: '12345678',
     });
 
-    mockSupabaseClient.from.mockReturnValue({
-      upsert: jest.fn().mockResolvedValue({ error: { message: 'DB error' } }),
+    expect(result).toEqual({
+      access_token: 'access-token-123',
+      refresh_token: 'refresh-token-123',
+      expires_in: 3600,
     });
+  });
 
-    mockSupabaseClient.auth.admin.deleteUser.mockResolvedValue({ error: null });
+  // Caso 2: credenciales incorrectas
+  it('debe lanzar UnauthorizedException con mensaje genérico si las credenciales son incorrectas', async () => {
+    mockSupabaseClient.auth.signInWithPassword.mockResolvedValue({
+      data: null,
+      error: { message: 'Invalid login credentials' },
+    });
 
     await expect(
-      service.register({
+      service.login({
+        email: 'test@correo.com',
+        password: 'passwordincorrecto',
+      }),
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
+  // Caso 3: correo no verificado
+  it('debe lanzar UnauthorizedException si el correo no está verificado', async () => {
+    mockSupabaseClient.auth.signInWithPassword.mockResolvedValue({
+      data: null,
+      error: { message: 'Email not confirmed' },
+    });
+
+    await expect(
+      service.login({
         email: 'test@correo.com',
         password: '12345678',
-        username: 'testuser',
       }),
-    ).rejects.toThrow(InternalServerErrorException);
+    ).rejects.toThrow(UnauthorizedException);
+  });
 
-    // Verificar que se ejecutó el rollback
-    expect(mockSupabaseClient.auth.admin.deleteUser).toHaveBeenCalledWith('uuid-123');
+  // Caso 4: verificar que el mensaje es genérico (no revela cuál campo es erróneo)
+  it('debe retornar siempre el mismo mensaje sin importar qué credencial es incorrecta', async () => {
+    mockSupabaseClient.auth.signInWithPassword.mockResolvedValue({
+      data: null,
+      error: { message: 'Invalid login credentials' },
+    });
+
+    await expect(
+      service.login({
+        email: 'noexiste@correo.com',
+        password: '12345678',
+      }),
+    ).rejects.toThrow('Credenciales incorrectas');
   });
 });

@@ -1,6 +1,7 @@
-import { Injectable, ConflictException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, ConflictException, InternalServerErrorException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
@@ -9,45 +10,97 @@ export class AuthService {
   // Funcion para el registro
   async register(dto: RegisterDto) {
     const supabase = this.supabaseService.getClient();
-
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+    const { data, error } = await supabase.auth.signUp({
       email: dto.email,
       password: dto.password,
-      email_confirm: false,
+      options: {
+        data: {
+          display_name: dto.username, // Se guarda en user_metadata
+        }
+      }
     });
 
-    if (authError) {
-      if (authError.message.includes('already been registered')) {
-        throw new ConflictException('El correo ya está registrado');
+    if (error) throw new BadRequestException(error.message);
+
+    return { message: 'Registro exitoso. Revisa tu correo para confirmar cuenta' };
+  }
+
+  async login(dto: LoginDto) {
+    const supabase = this.supabaseService.getClient(); 
+
+    // Verificar si está bloqueado antes de intentar
+    this.verificarBloqueo(dto.email);
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: dto.email,
+      password: dto.password
+    });
+
+    if (error) {
+      //Verificar que el correo esta confirmado
+      if (error.message.includes('Email not confirmed')) {
+        throw new UnauthorizedException('Debe verificar su correo antes de iniciar sesion');
       }
-      throw new InternalServerErrorException('Error al crear el usuario');
+      // Registrar intento fallido
+      this.registrarIntentoFallido(dto.email);
+      // Mensaje genérico
+      throw new UnauthorizedException('Credenciales incorrectas');
     }
 
-    // Verificar que el usuario existe en auth.users antes de insertar
-    const { data: authUser } = await supabase.auth.admin.getUserById(authData.user.id);
-
-    if (!authUser.user) {
-      throw new InternalServerErrorException('Error al verificar el usuario creado');
-    }
-
-    // Insertar el perfil
-    const { error: profileError } = await supabase
-      .from('perfil_usuario')
-      .upsert({
-        usuario_id: authData.user.id,
-        usuario: dto.username,
-      });
-
-    // Rollback en caso de fallo
-    if (profileError) {
-      // console.log(profileError);
-      await supabase.auth.admin.deleteUser(authData.user.id);
-      throw new InternalServerErrorException('Error al guardar el perfil');
-    }
+    // Login exitoso — limpiar intentos fallidos
+    this.limpiarIntentos(dto.email);
 
     return {
-      message: 'Registro exitoso. Revisa tu correo para verificar tu cuenta.',
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      expires_in: data.session.expires_in,
     };
+
+  }
+
+  // Mapa en memoria para rastrear intentos fallidos
+  private loginAttempts = new Map<string, { intentos: number; primerIntento: number }>();
+
+  private readonly MAX_INTENTOS = 5;
+  private readonly BLOQUEO_MS = 30 * 60 * 1000; // 30 minutos en ms
+
+  private verificarBloqueo(email: string): void {
+    const registro = this.loginAttempts.get(email);
+    if (!registro) return;
+
+    const tiempoTranscurrido = Date.now() - registro.primerIntento;
+
+    // Si ya pasaron 30 minutos, limpiar el registro
+    if (tiempoTranscurrido > this.BLOQUEO_MS) {
+      this.loginAttempts.delete(email);
+      return;
+    }
+
+    // Si hay 5 o más intentos fallidos, bloquear
+    if (registro.intentos >= this.MAX_INTENTOS) {
+      const minutosRestantes = Math.ceil((this.BLOQUEO_MS - tiempoTranscurrido) / 60000);
+      throw new UnauthorizedException(
+        `Cuenta bloqueada temporalmente. Intenta de nuevo en ${minutosRestantes} minutos`,
+      );
+    }
+  }
+
+  private registrarIntentoFallido(email: string): void {
+    const registro = this.loginAttempts.get(email);
+
+    if (!registro) {
+      this.loginAttempts.set(email, { intentos: 1, primerIntento: Date.now() });
+      return;
+    }
+
+    this.loginAttempts.set(email, {
+      intentos: registro.intentos + 1,
+      primerIntento: registro.primerIntento,
+    });
+  }
+
+  private limpiarIntentos(email: string): void {
+    this.loginAttempts.delete(email);
   }
 
 }
