@@ -4,12 +4,14 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { ConfigModule } from '@nestjs/config';
 import { SupabaseModule } from './supabase/supabase.module';
+import { MateriasModule } from './materias/materias.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     AuthModule,
     SupabaseModule,
+    MateriasModule,
   ],
   controllers: [AppController],
   providers: [AppService],
