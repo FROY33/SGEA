@@ -6,6 +6,7 @@ import {
 import { SupabaseService } from '../supabase/supabase.service';
 import { CreatePerfilAcademicoDto } from './dto/create-perfil-academico.dto';
 import { CreateEstresoresDto } from './dto/create-estresores.dto';
+import { UpdatePerfilDto } from './dto/update-perfil.dto';
 
 @Injectable()
 export class PerfilesService {
@@ -80,4 +81,59 @@ export class PerfilesService {
     if (error) throw new InternalServerErrorException(error.message);
     return data;
   }
+
+  async getPerfil(usuarioId: string) {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('perfil_usuario')
+      .select('*')
+      .eq('usuario_id', usuarioId)
+      .single();
+
+    if (error) throw new NotFoundException('Perfil no encontrado');
+    return data;
+  }
+
+  async updatePerfil(usuarioId: string, dto: UpdatePerfilDto) {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('perfil_usuario')
+      .update(dto)
+      .eq('usuario_id', usuarioId)
+      .select()
+      .single();
+
+    if (error) throw new InternalServerErrorException('Error al actualizar el perfil');
+    return data;
+  }
+
+  async uploadAvatar(userId: string, file: Express.Multer.File) {
+    const supabase = this.supabaseService.getClient();
+
+    const extension = file.mimetype.split('/')[1];
+    const fileName = `${userId}/${Date.now()}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('avatares')
+      .upload(fileName, file.buffer, {
+        contentType: file.mimetype,
+        upsert: true,
+      });
+
+    if (uploadError) throw new InternalServerErrorException('Error al subir la imagen');
+
+    const { data: urlData } = supabase.storage
+      .from('avatares')
+      .getPublicUrl(fileName);
+
+    const { error: updateError } = await supabase
+      .from('perfil_usuario')
+      .update({ avatar_url: urlData.publicUrl })
+      .eq('usuario_id', userId);
+
+    if (updateError) throw new InternalServerErrorException('Error al actualizar el avatar');
+
+    return { avatar_url: urlData.publicUrl };
+  }
+
 }

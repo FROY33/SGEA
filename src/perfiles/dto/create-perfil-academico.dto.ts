@@ -4,20 +4,20 @@ export class CreatePerfilAcademicoDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(150)
-  institucion: string;
+  institucion!: string;
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(150)
-  carrera: string;
+  carrera!: string;
 
   @IsInt()
   @Min(1)
   @Max(12)
-  semestre: number;
+  semestre!: number;
 
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(10)
-  promedio_general: number;
+  promedio_general!: number;
 }

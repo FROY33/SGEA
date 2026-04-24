@@ -8,5 +8,5 @@ export class CreateEstresoresDto {
   @ArrayMaxSize(8)
   @ValidateNested({ each: true })
   @Type(() => EstresorItemDto)
-  factores: EstresorItemDto[];
+  factores!: EstresorItemDto[];
 }
