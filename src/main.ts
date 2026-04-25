@@ -9,6 +9,7 @@ async function bootstrap() {
     forbidNonWhitelisted: true, // lanza error si llegan campos extra
     transform: true,       // convierte los tipos automáticamente
   }));
+  app.enableCors();
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
