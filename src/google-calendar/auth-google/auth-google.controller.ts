@@ -70,7 +70,7 @@ async callback(
 
     if (error) throw new UnauthorizedException('No se pudo guardar el token');
 
-    return res.redirect(`${process.env.FRONTEND_URL}/calendar-connected`);
+    return res.redirect(`${process.env.FRONTEND_URL}/calendar-connected.html`);
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     const errorName = err instanceof Error ? err.name : 'UnknownError';
