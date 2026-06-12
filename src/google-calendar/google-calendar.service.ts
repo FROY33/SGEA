@@ -101,12 +101,12 @@ export class GoogleCalendarService {
     }
 
     async exportarActividad(actividad: Actividad, usuarioId: string) {
-  // 1. Obtener tokens del usuario desde Supabase
   const supabase = this.supabaseService.getClient(); // service role
+
   const { data: usuario, error } = await supabase
-    .from('usuarios')
+    .from('perfil_usuario')
     .select('google_access_token, google_refresh_token, google_token_expiry')
-    .eq('id', usuarioId)
+    .eq('usuario_id', usuarioId)   // ← corregido
     .single();
 
   if (error || !usuario?.google_refresh_token) {
@@ -115,7 +115,6 @@ export class GoogleCalendarService {
     );
   }
 
-  // 2. Construir cliente autenticado con los tokens del usuario
   let oauth2Client;
   try {
     oauth2Client = this.getClientAutenticado({
@@ -126,23 +125,20 @@ export class GoogleCalendarService {
     throw new UnauthorizedException('Error al autenticar con Google Calendar');
   }
 
-  // 3. Auto-refresh: si el access_token expiró, googleapis lo renueva solo
-  //    pero necesitamos persistir el nuevo token
   oauth2Client.on('tokens', async (tokens) => {
     if (tokens.access_token) {
       await supabase
-        .from('usuarios')
+        .from('perfil_usuario')
         .update({
           google_access_token: tokens.access_token,
           google_token_expiry: tokens.expiry_date
             ? new Date(tokens.expiry_date).toISOString()
             : null,
         })
-        .eq('id', usuarioId);
+        .eq('usuario_id', usuarioId);   // ← corregido
     }
   });
 
-  // 4. El resto queda igual que tenías
   const event    = this.mapearActividad(actividad);
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
