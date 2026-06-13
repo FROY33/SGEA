@@ -138,16 +138,28 @@ async exportarTodas(
     actividades.map((a) => this.googleCalendarService.exportarActividad(a, user.id)),
   );
 
-  resultados.forEach((r, i) => {
+  // Mapeamos los resultados para que Postman nos diga EXACTAMENTE qué falló en cada una
+  const detallesDeRedencion = resultados.map((r, i) => {
     if (r.status === 'rejected') {
-      console.error(`Actividad ${actividades[i].id} falló:`, r.reason?.message || r.reason);
-      console.error('Detalle:', r.reason?.response?.data || r.reason?.stack);
+      return {
+        actividadId: actividades[i].id,
+        status: 'fallida',
+        // Capturamos el error crudo de Google o Supabase
+        motivo: r.reason?.message || 'Error sin mensaje',
+        detalleGoogle: r.reason?.response?.data || r.reason
+      };
     }
+    return {
+      actividadId: actividades[i].id,
+      status: 'exitosa',
+      googleEventId: r.value
+    };
   });
 
   return {
     exitosas: resultados.filter((r) => r.status === 'fulfilled').length,
     fallidas:  resultados.filter((r) => r.status === 'rejected').length,
+    analisis: detallesDeRedencion // ◄── ESTO APARECERÁ EN POSTMAN
   };
 }
 }
