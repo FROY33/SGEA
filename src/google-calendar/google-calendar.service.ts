@@ -81,7 +81,7 @@ export class GoogleCalendarService {
             },
             // ID único y estable: si ya fue exportada antes, Google Calendar
             // actualiza el evento en lugar de crear uno duplicado
-            id: `actividad-${actividad.id}`.replace(/[^a-z0-9]/gi, '').toLowerCase(),
+            id: actividad.id.replace(/[^a-z0-9]/gi, '').toLowerCase().substring(0, 50),
             colorId: this.mapearColorPorDificultad(actividad.dificultad),
             reminders: {
                 useDefault: false,
