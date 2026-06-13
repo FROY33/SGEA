@@ -157,8 +157,12 @@ export class GoogleCalendarService {
       });
       return response.data.id;
     }
-    this.logger.error('Error al exportar actividad', error);
-    throw new InternalServerErrorException('Error al exportar actividad a Google Calendar');
+    console.error('=> ERROR REAL DE GOOGLE DETECTADO:', error);
+    
+   
+    throw error;
+    //this.logger.error('Error al exportar actividad', error);
+    //throw new InternalServerErrorException('Error al exportar actividad a Google Calendar');
   }
 }
 }
