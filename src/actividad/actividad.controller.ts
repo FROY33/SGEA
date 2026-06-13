@@ -125,18 +125,25 @@ export class ActividadController {
   }
 
   // Exportación masiva de todas las actividades del usuario
-  @UseGuards(JwtGuard)
-  @Post('exportar-todas')
-  async exportarTodas(
-    @User() user: { id: string },
-    @Headers('authorization') auth: string,
-  ) {
-    const token = auth?.replace('Bearer ', '');
-    const actividades = await this.actividadService.findByUsuario(user.id, token);
+ @UseGuards(JwtGuard)
+@Post('exportar-todas')
+async exportarTodas(
+  @User() user: { id: string },
+  @Headers('authorization') auth: string,
+) {
+  const token = auth?.replace('Bearer ', '');
+  const actividades = await this.actividadService.findByUsuario(user.id, token);
 
-    const resultados = await Promise.allSettled(
-      actividades.map((a) => this.googleCalendarService.exportarActividad(a, user.id)),
-    );
+  const resultados = await Promise.allSettled(
+    actividades.map((a) => this.googleCalendarService.exportarActividad(a, user.id)),
+  );
+
+  resultados.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      console.error(`Actividad ${actividades[i].id} falló:`, r.reason?.message || r.reason);
+      console.error('Detalle:', r.reason?.response?.data || r.reason?.stack);
+    }
+  });
 
   return {
     exitosas: resultados.filter((r) => r.status === 'fulfilled').length,
@@ -144,3 +151,4 @@ export class ActividadController {
   };
 }
 }
+
