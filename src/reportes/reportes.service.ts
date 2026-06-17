@@ -1,6 +1,6 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
-
+import { NOMBRES_FACTORES, RECOMENDACIONES_POR_FACTOR, MENSAJES_GENERALES } from './data/recomendaciones.data';
 
 @Injectable()
 export class ReportesService {
@@ -119,5 +119,88 @@ export class ReportesService {
         grafica_distribucion: graficaDistribucion,
         mensaje_animo: this.getMensajeAnimo(categoria),
     };
+    }
+
+    async getRecomendacionPersonalizada(usuarioId: string) {
+        const supabase = this.supabaseService.getClient();
+
+        // Obtener estresores del usuario
+        const { data: estresores, error } = await supabase
+            .from('estresores')
+            .select('factor_id, peso')
+            .eq('usuario_id', usuarioId);
+
+        if (error) {
+            throw new InternalServerErrorException('Error al obtener los estresores');
+        }
+
+        if (!estresores || estresores.length === 0) {
+            return {
+            sin_datos: true,
+            mensaje: 'Aún no tienes estresores configurados para generar una recomendación',
+            };
+        }
+
+        // Pesos reales (importancia de cada factor en el cálculo del NE)
+        const PESOS_REALES: Record<number, number> = {
+            1: 0.143, 2: 0.151, 3: 0.152, 4: 0.063,
+            5: 0.132, 6: 0.118, 7: 0.106, 8: 0.134,
+        };
+
+        // Calcular contribución de cada factor al NE (peso del usuario * peso real)
+        const contribuciones = estresores.map(e => ({
+            factor_id: e.factor_id,
+            peso_usuario: e.peso,
+            contribucion: e.peso * (PESOS_REALES[e.factor_id] ?? 0),
+        }));
+
+        // Ordenar por contribución descendente y tomar top 2-3
+        const topFactores = contribuciones
+            .sort((a, b) => b.contribucion - a.contribucion)
+            .slice(0, 3);
+
+        // Calcular NE general para determinar la categoría
+        let numerador = 0;
+        let denominador = 0;
+        estresores.forEach(e => {
+            const pr = PESOS_REALES[e.factor_id];
+            if (pr !== undefined) {
+            numerador += e.peso * pr;
+            denominador += pr;
+            }
+        });
+
+        if (denominador < 0.1) {
+            return { sin_datos: true, mensaje: 'No hay suficientes datos para calcular tu nivel de estrés' };
+        }
+
+        const neValor = Math.round((numerador / denominador) * 20 * 10) / 10;
+        const categoria: 'Bajo' | 'Medio' | 'Alto' = neValor < 34 ? 'Bajo' : neValor < 67 ? 'Medio' : 'Alto';
+
+        // Generar recomendaciones por cada factor dominante
+        const recomendaciones = topFactores.map(f => {
+            const mensajesFactor = RECOMENDACIONES_POR_FACTOR[f.factor_id]?.[categoria] ?? [];
+            const mensaje = mensajesFactor[Math.floor(Math.random() * mensajesFactor.length)]
+            ?? 'Sigue trabajando en mantener un buen equilibrio en este aspecto.';
+
+            return {
+            factor_id: f.factor_id,
+            factor_nombre: NOMBRES_FACTORES[f.factor_id],
+            peso_usuario: f.peso_usuario,
+            recomendacion: mensaje,
+            };
+        });
+
+        // Mensaje general por categoría
+        const mensajesGenerales = MENSAJES_GENERALES[categoria];
+        const mensajeGeneral = mensajesGenerales[Math.floor(Math.random() * mensajesGenerales.length)];
+
+        return {
+            sin_datos: false,
+            ne_valor: neValor,
+            categoria,
+            mensaje_general: mensajeGeneral,
+            factores_dominantes: recomendaciones,
+        };
     }
 }
