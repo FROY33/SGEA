@@ -16,4 +16,9 @@ export class ReportesController {
     const accessToken = authHeader.split(' ')[1];
     return this.reportesService.getReporteEstres(user.id, accessToken);
     }
+
+    @Get('recomendacion')
+    getRecomendacion(@User() user: { id: string }) {
+      return this.reportesService.getRecomendacionPersonalizada(user.id);
+    }
 }
